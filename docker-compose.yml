@@ -16,7 +16,6 @@ services:
     image: django-base:latest
     env_file:
       - .env
-    working_dir: /app/django_base
     depends_on:
       - db
       - rabbitmq
@@ -51,7 +50,7 @@ services:
     image: django-base:latest
     command: celery -A django_base worker --loglevel=info
     volumes:
-      - ./django_base:/app
+      - ./django_base:/app/django_base
     working_dir: /app/django_base
     env_file:
       - .env
@@ -70,6 +69,11 @@ services:
     depends_on:
       - rabbitmq
       - celery
+
+  redis:
+    image: redis:8
+    ports:
+      - "6379:6379"
 
 volumes:
   postgres_data:

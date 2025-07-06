@@ -22,6 +22,20 @@ services:
     depends_on:
       - db
 
+  celery:
+    image: django-base:latest
+    command: celery -A django_base worker --loglevel=info
+    volumes:
+      - ./django_base:/app/django_base
+    working_dir: /app/django_base
+    env_file:
+      - .env
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+    depends_on:
+      - rabbitmq
+
   nginx:
     image: nginx:1.25
     ports:
