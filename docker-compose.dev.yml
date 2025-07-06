@@ -28,6 +28,7 @@ services:
       - "5678:5678"
     depends_on:
       - rabbitmq
+    user: "${UID}:${GID}"
 
   celery:
     build:
@@ -44,6 +45,7 @@ services:
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
     depends_on:
       - rabbitmq
+    user: "${UID}:${GID}"
 
   pgadmin:
     image: dpage/pgadmin4
