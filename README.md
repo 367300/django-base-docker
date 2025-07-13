@@ -56,8 +56,13 @@
 
 3. **Запустите проект в режиме разработки:**
    ```bash
+   docker build -t django-base:latest .
+   ```
+
+   ```bash
    docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
    ```
+   
    - Приложение будет доступно на http://localhost:8000
    - Для отладки используется Debugpy и порт прослушивания 5678, подключаться к локальному хосту где запущены контейнеры
    - Админка Django: http://localhost:8000/admin/
@@ -126,6 +131,11 @@ PGADMIN_DEFAULT_PASSWORD=admin
 - Отслеживайте производительность Celery
 
 ## Полезные команды
+
+- Собрать образ докера для джанго (иначе он будет пытаться его скачать из докер-хаба, где его нет)
+  ```bash
+  docker build -t django-base:latest .
+  ```
 
 - Запуск в режиме разработки:
   ```bash
