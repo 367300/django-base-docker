@@ -25,6 +25,9 @@
 - Пример .env файла
 - Пример приложения `tasks` с формой и WebSocket
 
+## Архитектура проекта
+![Архитектура проекта](doc/img/arch_prod.png)
+
 ## Возможности
 
 ### Фоновые задачи
@@ -112,6 +115,14 @@ CELERY_RESULT_BACKEND=rpc://
 # PgAdmin
 PGADMIN_DEFAULT_EMAIL=admin@admin.com
 PGADMIN_DEFAULT_PASSWORD=admin
+
+# Flower для продуктивной среды
+FLOWER_BASIC_AUTH=login:password
+
+# Учетка, чтобы узнать свой id, введи команду id
+# Это чтобы ты мог редактировать файлы, которые в общем volume создают твои контейнеры
+UID=1000
+GID=1000
 ```
 
 ## Тестирование функциональности
