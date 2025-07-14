@@ -11,7 +11,8 @@
     <form method="post">
         {% csrf_token %}
         <button type="submit" name="action" value="sync" class="btn btn-primary me-2">Выполнить синхронно</button>
-        <button type="submit" name="action" value="async" class="btn btn-success">Выполнить через Celery</button>
+        <button type="submit" name="action" value="async" class="btn btn-success me-2">Выполнить через Celery</button>
+        <a href="{% url 'tasks:message_board' %}" class="btn btn-warning">Выполнение задачи ml</a>
     </form>
 </body>
 </html> 

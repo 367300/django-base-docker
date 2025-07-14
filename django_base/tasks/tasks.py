@@ -5,6 +5,7 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from .models import Message
 import requests
+from decouple import config
 
 def send_status_update(task_id, status, result=None):
     channel_layer = get_channel_layer()
@@ -38,13 +39,16 @@ def long_task(self, task_id):
 
 @shared_task(bind=True)
 def classify_message_category(self, message_id):
+    print('----------------------------------------')
+    print(config('ADRESS_PORT_ML_SERVICE', default='http://172.17.0.1:5001') + '/predict')
+    print('----------------------------------------')
     try:
         msg = Message.objects.get(id=message_id)
     except Message.DoesNotExist:
         return
     try:
         response = requests.post(
-            'http://172.17.0.1:5001/predict',
+            config('ADRESS_PORT_ML_SERVICE', default='http://172.17.0.1:5001') + '/predict',
             json={'text': msg.text},
             timeout=3
         )

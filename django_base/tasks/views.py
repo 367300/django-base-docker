@@ -5,6 +5,7 @@ from django.http import JsonResponse
 from .models import Message
 import requests
 from .tasks import classify_message_category
+from decouple import config
 
 def task_form(request):
     if request.method == 'POST':
@@ -34,11 +35,13 @@ def send_message(request):
         msg = Message.objects.create(text=text)
         # Проверяем доступность ML-сервиса
         try:
-            health = requests.get('http://172.17.0.1:5001/health', timeout=1)
+            health = requests.get(config('ADRESS_PORT_ML_SERVICE', default='http://172.17.0.1:5001') + '/health', timeout=1)
             if health.status_code == 200 and health.json().get('status'):
                 # Ставим задачу на определение категории
-                classify_message_category(str(msg.id))
+                classify_message_category.delay(str(msg.id))
         except Exception:
+            print('-----------------------------------------')
+            print(config('ADRESS_PORT_ML_SERVICE', default='http://172.17.0.1:5001') + '/health')
             pass  # ML-сервис недоступен, категорию не определяем
         return JsonResponse({'id': str(msg.id), 'text': msg.text, 'category': msg.category, 'created': msg.created})
     return JsonResponse({'error': 'Только POST'}, status=405)

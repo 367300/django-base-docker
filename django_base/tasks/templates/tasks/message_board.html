@@ -1,64 +1,99 @@
-{% block content %}
-<h2>Чат сообщений</h2>
-<div id="messages">
-    {% for msg in messages %}
-    <div class="message" id="msg-{{ msg.id }}">
-        <div class="category" id="cat-{{ msg.id }}">{{ msg.category|default:'Ожидание' }}</div>
-        <div class="text">{{ msg.text }}</div>
-        <div class="date">{{ msg.created|date:'d.m.Y H:i:s' }}</div>
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Чат обращений</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .message-card { margin-bottom: 1rem; }
+        .category-badge { font-size: 1em; }
+        #messages { max-height: 60vh; overflow-y: auto; }
+    </style>
+</head>
+<body class="container py-5">
+    <h1 class="mb-4">Чат обращений</h1>
+    <p class="mb-4 text-muted">Здесь вы можете отправить обращение и сразу получить его категорию в реальном времени.</p>
+    <a href="{% url 'tasks:task_form' %}" class="btn btn-secondary mb-4">Назад к форме</a>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <form id="msg-form" class="row g-2">
+                <div class="col-10">
+                    <input type="text" id="msg-text" name="text" class="form-control" placeholder="Введите обращение..." required>
+                </div>
+                <div class="col-2 d-grid">
+                    <button type="submit" class="btn btn-primary">Отправить</button>
+                </div>
+            </form>
+        </div>
     </div>
-    {% endfor %}
-</div>
-<form id="msg-form">
-    <input type="text" id="msg-text" name="text" placeholder="Введите сообщение..." required>
-    <button type="submit">Отправить</button>
-</form>
-<script>
-function addMessage(msg) {
-    const div = document.createElement('div');
-    div.className = 'message';
-    div.id = 'msg-' + msg.id;
-    div.innerHTML = `<div class="category" id="cat-${msg.id}">${msg.category || 'Ожидание'}</div>
-        <div class="text">${msg.text}</div>
-        <div class="date">${msg.created ? msg.created : ''}</div>`;
-    document.getElementById('messages').prepend(div);
-    subscribeCategory(msg.id);
-}
 
-document.getElementById('msg-form').onsubmit = function(e) {
-    e.preventDefault();
-    const text = document.getElementById('msg-text').value;
-    fetch('{% url 'tasks:send_message' %}', {
-        method: 'POST',
-        headers: {
-            'X-CSRFToken': '{{ csrf_token }}',
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: 'text=' + encodeURIComponent(text)
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.id) {
-            addMessage(data);
-            document.getElementById('msg-text').value = '';
-        } else {
-            alert(data.error || 'Ошибка');
-        }
-    });
-};
+    <div id="messages">
+        {% for msg in messages %}
+        <div class="card message-card" id="msg-{{ msg.id }}">
+            <div class="card-body">
+                <span class="badge bg-info category-badge" id="cat-{{ msg.id }}">
+                    {{ msg.category|default:'Ожидание' }}
+                </span>
+                <span class="text-muted float-end" style="font-size:0.9em;">{{ msg.created|date:'d.m.Y H:i:s' }}</span>
+                <div class="mt-2">{{ msg.text }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
 
-function subscribeCategory(msgId) {
-    const ws = new WebSocket(`ws://${window.location.host}/ws/tasks/message/${msgId}/`);
-    ws.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-        if (data.category) {
-            document.getElementById('cat-' + msgId).textContent = data.category;
-        }
+    <script>
+    function addMessage(msg) {
+        const div = document.createElement('div');
+        div.className = 'card message-card';
+        div.id = 'msg-' + msg.id;
+        div.innerHTML = `
+            <div class="card-body">
+                <span class="badge bg-info category-badge" id="cat-${msg.id}">${msg.category || 'Ожидание'}</span>
+                <span class="text-muted float-end" style="font-size:0.9em;">${msg.created ? msg.created : ''}</span>
+                <div class="mt-2">${msg.text}</div>
+            </div>`;
+        document.getElementById('messages').prepend(div);
+        subscribeCategory(msg.id);
+    }
+
+    document.getElementById('msg-form').onsubmit = function(e) {
+        e.preventDefault();
+        const text = document.getElementById('msg-text').value;
+        fetch('{% url 'tasks:send_message' %}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}',
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: 'text=' + encodeURIComponent(text)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.id) {
+                addMessage(data);
+                document.getElementById('msg-text').value = '';
+            } else {
+                alert(data.error || 'Ошибка');
+            }
+        });
     };
-}
-// Подписываемся на все существующие сообщения
-{% for msg in messages %}
-subscribeCategory("{{ msg.id }}");
-{% endfor %}
-</script>
-{% endblock %} 
+
+    function subscribeCategory(msgId) {
+        const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+        const ws = new WebSocket(`${wsScheme}://${window.location.host}/ws/tasks/message/${msgId}/`);
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            if (data.category) {
+                document.getElementById('cat-' + msgId).textContent = data.category;
+            }
+        };
+    }
+    // Подписываемся на все существующие сообщения
+    {% for msg in messages %}
+    subscribeCategory("{{ msg.id }}");
+    {% endfor %}
+    </script>
+</body>
+</html> 
