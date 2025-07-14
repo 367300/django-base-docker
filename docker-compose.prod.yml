@@ -45,9 +45,12 @@ services:
     image: nginx:1.25
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./django_base/static:/app/django_base/static:ro
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
     depends_on:
       - web
 
@@ -61,3 +64,18 @@ services:
     depends_on:
       - rabbitmq
       - celery
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./django_base/static:/app/django_base/static:ro
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    entrypoint: ""
+    command: >
+      sh -c "sleep 10 && certbot certonly --webroot --webroot-path=/var/www/certbot \
+      --email l24122018@yandex.ru --agree-tos --no-eff-email \
+      -d midas-hand.ru -d www.midas-hand.ru"
+    depends_on:
+      - nginx
