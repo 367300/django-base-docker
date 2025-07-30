@@ -10,6 +10,8 @@ import tiktoken
 from git import Repo
 from openai import OpenAI
 import json
+import hashlib
+from fnmatch import fnmatch
 
 # === Чтение ключа OpenAI из .env ===
 OPENAI_API_KEY = config('OPENAI_API_KEY')
@@ -18,9 +20,9 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 # === НАСТРОЙКИ ===
 # Корневая директория для поиска файлов
-ROOT_DIR = Path('django_base/')
+ROOT_DIR = Path('.')
 # Расширения файлов для обработки
-FILE_EXTENSIONS = ['.py', '.md', '.yml']
+FILE_EXTENSIONS = ['.py', '.md', '.yml' , '.conf']
 # Имя файла базы данных
 DB_PATH = 'embeddings.sqlite3'
 # Количество последних коммитов
@@ -43,17 +45,128 @@ def init_db(db_path: str):
             start_line INTEGER,
             end_line INTEGER,
             commit_messages TEXT,
-            raw_text TEXT
+            raw_text TEXT,
+            embedding_text TEXT
         )
     ''')
     conn.commit()
     return conn
 
+# === Чтение .gitignore ===
+def load_gitignore(root_dir: Path) -> List[str]:
+    """Загрузить правила из .gitignore."""
+    gitignore_path = root_dir / '.gitignore'
+    if not gitignore_path.exists():
+        return []
+    
+    with open(gitignore_path, 'r', encoding='utf-8') as f:
+        return [line.strip() for line in f if line.strip() and not line.startswith('#')]
+
+def should_ignore_file(file_path: Path, gitignore_patterns: List[str]) -> bool:
+    """Проверить, должен ли файл быть проигнорирован."""
+    rel_path = str(file_path.relative_to(ROOT_DIR))
+    
+    for pattern in gitignore_patterns:
+        # Убираем слеш в начале, если есть
+        if pattern.startswith('/'):
+            pattern = pattern[1:]
+        
+        # Проверяем точное совпадение
+        if fnmatch(rel_path, pattern):
+            return True
+        
+        # Проверяем, находится ли файл внутри директории
+        # Для паттернов с / в конце (например, "static/")
+        if pattern.endswith('/'):
+            dir_pattern = pattern[:-1]  # убираем trailing slash
+            # Разбиваем путь на части и проверяем каждую директорию
+            path_parts = rel_path.split('/')
+            if dir_pattern in path_parts:
+                return True
+        
+        # Для паттернов без / в конце, но которые могут быть директориями
+        else:
+            # Проверяем, начинается ли путь с этой директории
+            if rel_path.startswith(pattern + '/'):
+                return True
+            
+            # Проверяем точное совпадение с файлом
+            if rel_path == pattern:
+                return True
+            
+            # Проверяем, является ли паттерн директорией в пути
+            path_parts = rel_path.split('/')
+            if pattern in path_parts:
+                return True
+    
+    return False
+
+# === Проверка изменений файлов ===
+def get_file_hash(file_path: Path) -> str:
+    """Получить хеш файла для отслеживания изменений."""
+    with open(file_path, 'rb') as f:
+        return hashlib.md5(f.read()).hexdigest()
+
+def get_existing_file_hashes(conn) -> dict:
+    """Получить хеши уже обработанных файлов из БД."""
+    c = conn.cursor()
+    try:
+        c.execute('''
+            SELECT file_path, file_hash FROM file_hashes
+        ''')
+        return dict(c.fetchall())
+    except sqlite3.OperationalError:
+        # Если таблица не существует, создаём её
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS file_hashes (
+                file_path TEXT PRIMARY KEY,
+                file_hash TEXT
+            )
+        ''')
+        conn.commit()
+        return {}
+
+def update_file_hash(conn, file_path: str, file_hash: str):
+    """Обновить хеш файла в БД."""
+    c = conn.cursor()
+    c.execute('''
+        INSERT OR REPLACE INTO file_hashes (file_path, file_hash)
+        VALUES (?, ?)
+    ''', (file_path, file_hash))
+    conn.commit()
+
+def delete_file_blocks(conn, file_path: str):
+    """Удалить все блоки для файла из БД."""
+    c = conn.cursor()
+    c.execute('DELETE FROM embeddings WHERE file_path = ?', (file_path,))
+    conn.commit()
+
+def get_existing_blocks_for_file(conn, file_path: str) -> list:
+    """Получить все существующие блоки для файла."""
+    c = conn.cursor()
+    c.execute('''
+        SELECT id, class_name, method_name, start_line, end_line, block_type
+        FROM embeddings WHERE file_path = ?
+    ''', (file_path,))
+    return c.fetchall()
+
+def block_exists(conn, file_path: str, class_name: str, method_name: str, start_line: int, end_line: int, block_type: str) -> bool:
+    """Проверить, существует ли блок с такими параметрами."""
+    c = conn.cursor()
+    c.execute('''
+        SELECT COUNT(*) FROM embeddings
+        WHERE file_path = ? AND class_name = ? AND method_name = ? 
+        AND start_line = ? AND end_line = ? AND block_type = ?
+    ''', (file_path, class_name, method_name, start_line, end_line, block_type))
+    return c.fetchone()[0] > 0
+
 # === Поиск файлов ===
-def find_files(root_dir: Path, extensions: List[str]) -> List[Path]:
+def find_files(root_dir: Path, extensions: List[str], gitignore_patterns: List[str]) -> List[Path]:
     files = []
     for ext in extensions:
-        files.extend(root_dir.rglob(f'*{ext}'))
+        for file_path in root_dir.rglob(f'*{ext}'):
+            if not should_ignore_file(file_path, gitignore_patterns):
+                files.append(file_path)
     return files
 
 # === Структура блока ===
@@ -198,14 +311,14 @@ def get_embedding(text: str) -> list:
         print(f'[red]Ошибка получения эмбединга: {e}[/red]')
         return None
 
-def save_embedding(conn, block: CodeBlock, embedding: list):
+def save_embedding(conn, block: CodeBlock, embedding: list, embedding_text: str):
     """Сохранить эмбединг в базу данных."""
     c = conn.cursor()
     c.execute('''
         INSERT INTO embeddings 
         (embedding, file_path, block_type, class_name, method_name, 
-         start_line, end_line, commit_messages, raw_text)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         start_line, end_line, commit_messages, raw_text, embedding_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         json.dumps(embedding),
         block.file_path,
@@ -215,13 +328,19 @@ def save_embedding(conn, block: CodeBlock, embedding: list):
         block.start_line,
         block.end_line,
         json.dumps(block.commit_messages) if block.commit_messages else None,
-        block.raw_text
+        block.raw_text,
+        embedding_text
     ))
     conn.commit()
 
 def process_embeddings(conn, blocks: list):
     """Обработать все блоки и сохранить эмбединги."""
     for block in tqdm(blocks, desc='Генерация эмбедингов'):
+        # Проверяем, существует ли уже такой блок
+        if block_exists(conn, block.file_path, block.class_name, block.method_name, 
+                       block.start_line, block.end_line, block.block_type):
+            continue  # Пропускаем существующий блок
+        
         # Формируем текст для эмбединга
         embedding_text = f"File: {block.file_path}\n"
         if block.class_name:
@@ -236,25 +355,50 @@ def process_embeddings(conn, blocks: list):
         # Получаем эмбединг
         embedding = get_embedding(embedding_text)
         if embedding:
-            save_embedding(conn, block, embedding)
+            save_embedding(conn, block, embedding, embedding_text)
         else:
             print(f'[yellow]Пропущен блок: {block}[/yellow]')
 
 if __name__ == '__main__':
     print(f'[bold green]Инициализация базы данных...[/bold green]')
     conn = init_db(DB_PATH)
+    
+    print(f'[bold green]Загрузка .gitignore...[/bold green]')
+    gitignore_patterns = load_gitignore(ROOT_DIR)
+    print(f'[bold blue]Загружено правил .gitignore:[/bold blue] {len(gitignore_patterns)}')
+    
     print(f'[bold green]Поиск файлов...[/bold green]')
-    files = find_files(ROOT_DIR, FILE_EXTENSIONS)
+    files = find_files(ROOT_DIR, FILE_EXTENSIONS, gitignore_patterns)
     print(f'[bold blue]Найдено файлов:[/bold blue] {len(files)}')
-    for f in files:
-        print(f'- {f}')
-
-    print(f'[bold green]Обработка файлов...[/bold green]')
-    all_blocks = process_files(files)
-    print(f'[bold magenta]Всего блоков для эмбединга:[/bold magenta] {len(all_blocks)}')
-
-    print(f'[bold green]Генерация эмбедингов...[/bold green]')
-    process_embeddings(conn, all_blocks)
-
+    
+    # Проверяем изменения файлов
+    existing_hashes = get_existing_file_hashes(conn)
+    files_to_process = []
+    
+    for file_path in files:
+        file_hash = get_file_hash(file_path)
+        if str(file_path) not in existing_hashes or existing_hashes[str(file_path)] != file_hash:
+            files_to_process.append(file_path)
+            # Удаляем старые блоки для изменённого файла
+            if str(file_path) in existing_hashes:
+                delete_file_blocks(conn, str(file_path))
+            # Обновляем хеш
+            update_file_hash(conn, str(file_path), file_hash)
+    
+    print(f'[bold blue]Файлов для обработки:[/bold blue] {len(files_to_process)}')
+    if files_to_process:
+        for f in files_to_process:
+            print(f'- {f}')
+    
+    if files_to_process:
+        print(f'[bold green]Обработка файлов...[/bold green]')
+        all_blocks = process_files(files_to_process)
+        print(f'[bold magenta]Всего блоков для эмбединга:[/bold magenta] {len(all_blocks)}')
+        
+        print(f'[bold green]Генерация эмбедингов...[/bold green]')
+        process_embeddings(conn, all_blocks)
+    else:
+        print(f'[bold green]Все файлы актуальны, обновление не требуется![/bold green]')
+    
     print(f'[bold green]Готово! Эмбединги сохранены в {DB_PATH}[/bold green]')
     conn.close()
