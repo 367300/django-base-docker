@@ -8,15 +8,44 @@ from rich import print
 import ast
 import tiktoken
 from git import Repo
-from openai import OpenAI
+import requests
 import json
 import hashlib
 from fnmatch import fnmatch
+from gigachat import GigaChat
 
-# === Чтение ключа OpenAI из .env ===
-OPENAI_API_KEY = config('OPENAI_API_KEY')
+# === Чтение ключа GigaChat из .env ===
+GIGACHAT_CREDENTIALS = config('GIGACHAT_CREDENTIALS', default=False)
+if not GIGACHAT_CREDENTIALS:
+    print('[red]Не удалось получить токен GigaChat. Завершение работы.[/red]')
+    exit(1)
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+# === Настройки GigaChat API ===
+GIGACHAT_BASE_URL = "https://gigachat.devices.sberbank.ru/api/v1"
+GIGACHAT_EMBEDDINGS_URL = f"{GIGACHAT_BASE_URL}/embeddings"
+GIGACHAT_AUTH_URL = f"{GIGACHAT_BASE_URL}/auth"
+
+giga = GigaChat(
+    credentials=GIGACHAT_CREDENTIALS,
+    )
+
+# Получаем токен доступа при инициализации
+def get_gigachat_token():
+    """Получить токен доступа для GigaChat API."""
+    try:
+        response = giga.get_token()
+        return response.access_token
+    except Exception as e:
+        print(f'[red]Ошибка получения токена GigaChat: {e}[/red]')
+        return None
+
+# Получаем токен при запуске
+giga_token = get_gigachat_token()
+if not giga_token:
+    print('[red]Не удалось получить токен GigaChat. Завершение работы.[/red]')
+    exit(1)
+
+print(f'[green]Токен GigaChat получен успешно[/green]')
 
 # === НАСТРОЙКИ ===
 # Корневая директория для поиска файлов
@@ -24,9 +53,9 @@ ROOT_DIR = Path('.')
 # Расширения файлов для обработки
 FILE_EXTENSIONS = ['.py', '.md', '.yml' , '.conf']
 # Имя файла базы данных
-DB_PATH = 'embeddings.sqlite3'
+DB_PATH = 'embeddings_gigachat.sqlite3'
 # Количество последних коммитов
-N_COMMITS = 3
+N_COMMITS = 5
 # Лимит токенов на блок
 TOKEN_LIMIT = 1600
 
@@ -302,11 +331,24 @@ def process_files(files: list) -> list:
 # === Инициализация OpenAI ===
 
 def get_embedding(text: str) -> list:
-    """Получить эмбединг для текста через OpenAI API."""
+    """Получить эмбединг для текста через GigaChat API."""
     try:
-        response = client.embeddings.create(input=text,
-        model="text-embedding-ada-002")
-        return response.data[0].embedding
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {giga_token}'
+        }
+        
+        data = {
+            "model": "EmbeddingsGigaR",
+            "input": [text]
+        }
+        
+        response = requests.post(GIGACHAT_EMBEDDINGS_URL, headers=headers, json=data)
+        response.raise_for_status()
+        
+        response_data = response.json()
+        return response_data['data'][0]['embedding']
     except Exception as e:
         print(f'[red]Ошибка получения эмбединга: {e}[/red]')
         return None
