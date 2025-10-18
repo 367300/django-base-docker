@@ -26,6 +26,7 @@ services:
       - db
     volumes:
       - ./django_base/static:/app/django_base/static
+    restart: on-failure:3
 
   celery:
     image: django-base:latest
@@ -40,16 +41,21 @@ services:
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
     depends_on:
       - rabbitmq
+    restart: on-failure:3
 
   nginx:
     image: nginx:1.25
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./django_base/static:/app/django_base/static:ro
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
     depends_on:
       - web
+    restart: on-failure:3
 
   flower:
     image: mher/flower:2.0.1
@@ -61,3 +67,4 @@ services:
     depends_on:
       - rabbitmq
       - celery
+    restart: on-failure:3
