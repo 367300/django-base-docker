@@ -11,6 +11,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 30s
+        window: 600s
 
   web:
     image: django-base:latest
@@ -36,6 +41,11 @@ services:
       - POSTGRES_PORT=${POSTGRES_PORT}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 30s
+        window: 600s
 
   rabbitmq:
     image: rabbitmq:4.1.1-management
@@ -45,6 +55,11 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 30s
+        window: 600s
 
   celery:
     image: django-base:latest
@@ -59,6 +74,11 @@ services:
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
     depends_on:
       - rabbitmq
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 30s
+        window: 600s
 
   flower:
     image: mher/flower:2.0.1
@@ -69,11 +89,21 @@ services:
     depends_on:
       - rabbitmq
       - celery
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 30s
+        window: 600s
 
   redis:
     image: redis:8
     ports:
       - "6379:6379"
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 30s
+        window: 600s
 
 volumes:
   postgres_data:

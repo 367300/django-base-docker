@@ -26,6 +26,11 @@ services:
       - db
     volumes:
       - ./django_base/static:/app/django_base/static
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 30s
+        window: 600s
 
   celery:
     image: django-base:latest
@@ -40,6 +45,11 @@ services:
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
     depends_on:
       - rabbitmq
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 30s
+        window: 600s
 
   nginx:
     image: nginx:1.25
@@ -53,6 +63,11 @@ services:
       - ./certbot/conf:/etc/letsencrypt
     depends_on:
       - web
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 30s
+        window: 600s
 
   flower:
     image: mher/flower:2.0.1
@@ -64,6 +79,11 @@ services:
     depends_on:
       - rabbitmq
       - celery
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 30s
+        window: 600s
 
   certbot:
     image: certbot/certbot
@@ -79,3 +99,8 @@ services:
       -d midas-hand.ru -d www.midas-hand.ru"
     depends_on:
       - nginx
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 30s
+        window: 600s
